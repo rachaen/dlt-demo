@@ -1,16 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { FixedSizeList as List } from 'react-window';
 
 const App = () => {
   const [messageCount, setMessageCount] = useState(0);
   const [avgRate, setAvgRate] = useState(0);
-  const [messages, setMessages] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
+  const [messages, setMessages] = useState([]);
   const socketRef = useRef(null);
   const startTimeRef = useRef(null);
-  const messagesEndRef = useRef(null);
+  const listRef = useRef(null);
   const messageQueueRef = useRef([]);
-  const batchSize = 20; // 한 번에 처리할 메시지 수
-  const updateInterval = 100; // 화면 업데이트 간격 (밀리초)
+  const batchSize = 20;
+  const updateInterval = 100;
 
   useEffect(() => {
     return () => {
@@ -20,20 +21,19 @@ const App = () => {
     };
   }, []);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
   const processMessageQueue = useCallback(() => {
     if (messageQueueRef.current.length > 0) {
       const batchToProcess = messageQueueRef.current.splice(0, batchSize);
-      setMessageCount((prevCount) => prevCount + batchToProcess.length);
-      setMessages((prevMessages) => [...prevMessages, ...batchToProcess]);
+      setMessageCount((prevCount) => {
+        const newCount = prevCount + batchToProcess.length;
+        const elapsedTime = (Date.now() - startTimeRef.current) / 1000;
+        setAvgRate((newCount / elapsedTime).toFixed(2));
+        return newCount;
+      });
 
-      const elapsedTime = (Date.now() - startTimeRef.current) / 1000;
-      setAvgRate((messageCount / elapsedTime).toFixed(2));
+      setMessages((prevMessages) => [...prevMessages, ...batchToProcess]);
     }
-  }, [messageCount]);
+  }, []);
 
   useEffect(() => {
     let intervalId;
@@ -42,6 +42,12 @@ const App = () => {
     }
     return () => clearInterval(intervalId);
   }, [isRunning, processMessageQueue]);
+
+  useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollToItem(messages.length - 1, 'end');
+    }
+  }, [messages]);
 
   const startWebSocket = () => {
     socketRef.current = new WebSocket('ws://localhost:9090/websocket');
@@ -65,6 +71,12 @@ const App = () => {
     processMessageQueue(); // 남은 메시지 처리
   };
 
+  const Row = ({ index, style }) => (
+    <div style={style} className='mb-2 pb-2 border-b border-gray-200'>
+      {messages[index]}
+    </div>
+  );
+
   return (
     <div className='flex flex-col h-screen p-4'>
       <h1 className='text-2xl font-bold mb-4'>WebSocket Client</h1>
@@ -76,13 +88,10 @@ const App = () => {
           Avg per second: <span>{avgRate}</span>
         </div>
       </div>
-      <div className='flex-grow border border-gray-300 overflow-y-auto p-4 mb-4'>
-        {messages.map((msg, index) => (
-          <div key={index} className='mb-2 pb-2 border-b border-gray-200'>
-            {msg}
-          </div>
-        ))}
-        <div ref={messagesEndRef} />
+      <div className='flex-grow border border-gray-300 overflow-hidden p-4 mb-4'>
+        <List height={400} itemCount={messages.length} itemSize={35} width='100%' ref={listRef}>
+          {Row}
+        </List>
       </div>
       <div className='flex justify-start'>
         <button
