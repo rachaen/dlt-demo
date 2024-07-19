@@ -3,6 +3,7 @@ import { FixedSizeList as List } from 'react-window';
 
 const App = () => {
   const [messageCount, setMessageCount] = useState(0);
+  const [displayedCount, setDisplayedCount] = useState(0);
   const [avgRate, setAvgRate] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -10,8 +11,9 @@ const App = () => {
   const startTimeRef = useRef(null);
   const listRef = useRef(null);
   const messageQueueRef = useRef([]);
-  const batchSize = 20;
-  const updateInterval = 100;
+  const batchSize = 1000; // 증가된 배치 크기
+  const updateInterval = 50; // 더 빈번한 업데이트
+  const maxDisplayMessages = 10000; // 최대 표시 메시지 수
 
   useEffect(() => {
     return () => {
@@ -24,16 +26,19 @@ const App = () => {
   const processMessageQueue = useCallback(() => {
     if (messageQueueRef.current.length > 0) {
       const batchToProcess = messageQueueRef.current.splice(0, batchSize);
-      setMessageCount((prevCount) => {
-        const newCount = prevCount + batchToProcess.length;
-        const elapsedTime = (Date.now() - startTimeRef.current) / 1000;
-        setAvgRate((newCount / elapsedTime).toFixed(2));
-        return newCount;
+      setMessageCount((prevCount) => prevCount + batchToProcess.length);
+      setMessages((prevMessages) => {
+        const newMessages = [...prevMessages, ...batchToProcess];
+        if (newMessages.length > maxDisplayMessages) {
+          return newMessages.slice(-maxDisplayMessages);
+        }
+        return newMessages;
       });
-
-      setMessages((prevMessages) => [...prevMessages, ...batchToProcess]);
+      setDisplayedCount((prevCount) => Math.min(prevCount + batchToProcess.length, maxDisplayMessages));
     }
-  }, []);
+    const elapsedTime = (Date.now() - startTimeRef.current) / 1000;
+    setAvgRate((messageCount / elapsedTime).toFixed(2));
+  }, [messageCount]);
 
   useEffect(() => {
     let intervalId;
@@ -56,6 +61,7 @@ const App = () => {
     };
 
     setMessageCount(0);
+    setDisplayedCount(0);
     setAvgRate(0);
     setMessages([]);
     messageQueueRef.current = [];
@@ -82,7 +88,10 @@ const App = () => {
       <h1 className='text-2xl font-bold mb-4'>WebSocket Client</h1>
       <div className='flex justify-between mb-4'>
         <div className='text-sm text-gray-600'>
-          CNT: <span>{messageCount}</span>
+          Total received: <span>{messageCount}</span>
+        </div>
+        <div className='text-sm text-gray-600'>
+          Displayed: <span>{displayedCount}</span>
         </div>
         <div className='text-sm text-gray-600'>
           Avg per second: <span>{avgRate}</span>
