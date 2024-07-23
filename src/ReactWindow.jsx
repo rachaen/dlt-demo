@@ -1,17 +1,34 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { FixedSizeList as List } from 'react-window';
+import AutoSizer from 'react-virtualized-auto-sizer';
 
-const ReactWindow = () => {
-  const [messageCount, setMessageCount] = useState(0);
-  const [displayedCount, setDisplayedCount] = useState(0);
-  const [avgRate, setAvgRate] = useState(0);
+export default function ReactWindow() {
   const [isRunning, setIsRunning] = useState(false);
   const [messages, setMessages] = useState([]);
   const socketRef = useRef(null);
-  const startTimeRef = useRef(null);
-  const messageQueueRef = useRef([]);
-  const bufferSize = 100;
-  const updateInterval = 1000;
-  const maxDisplayMessages = 1000;
+  const listRef = useRef();
+  const bufferRef = useRef([]);
+  const maxBufferSize = 10000;
+  const updateInterval = 100; // 100ms for more frequent updates
+  const maxDisplayedMessages = 100000; // Adjust based on your needs
+
+  const flushBuffer = useCallback(() => {
+    if (bufferRef.current.length > 0) {
+      setMessages((prevMessages) => {
+        const newMessages = [...prevMessages, ...bufferRef.current];
+        bufferRef.current = [];
+        return newMessages.slice(-maxDisplayedMessages);
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    let intervalId;
+    if (isRunning) {
+      intervalId = setInterval(flushBuffer, updateInterval);
+    }
+    return () => clearInterval(intervalId);
+  }, [isRunning, flushBuffer]);
 
   useEffect(() => {
     return () => {
@@ -21,31 +38,9 @@ const ReactWindow = () => {
     };
   }, []);
 
-  const processMessageQueue = useCallback(() => {
-    if (messageQueueRef.current.length > 0) {
-      const newMessages = [...messages, ...messageQueueRef.current];
-      const updatedMessages = newMessages.slice(-maxDisplayMessages);
-      setMessages(updatedMessages);
-      setMessageCount((prevCount) => prevCount + messageQueueRef.current.length);
-      setDisplayedCount(updatedMessages.length);
-      messageQueueRef.current = [];
-    }
-    const elapsedTime = (Date.now() - startTimeRef.current) / 1000;
-    setAvgRate((messageCount / elapsedTime).toFixed(2));
-  }, [messages, messageCount]);
-
   useEffect(() => {
-    let intervalId;
-    if (isRunning) {
-      intervalId = setInterval(processMessageQueue, updateInterval);
-    }
-    return () => clearInterval(intervalId);
-  }, [isRunning, processMessageQueue]);
-
-  useEffect(() => {
-    const table = document.getElementById('messageTable');
-    if (table) {
-      table.scrollTop = table.scrollHeight;
+    if (listRef.current && messages.length > 0) {
+      listRef.current.scrollToItem(messages.length - 1, 'end');
     }
   }, [messages]);
 
@@ -53,18 +48,15 @@ const ReactWindow = () => {
     socketRef.current = new WebSocket('ws://localhost:8383/data');
     socketRef.current.onmessage = (event) => {
       const receivedData = event.data.split('\n');
-      messageQueueRef.current.push(...receivedData.map((message) => message.trim()));
-      if (messageQueueRef.current.length >= bufferSize) {
-        processMessageQueue();
+      bufferRef.current.push(...receivedData.map((message) => message.trim()));
+
+      if (bufferRef.current.length > maxBufferSize) {
+        bufferRef.current = bufferRef.current.slice(-maxBufferSize);
       }
     };
 
-    setMessageCount(0);
-    setDisplayedCount(0);
-    setAvgRate(0);
     setMessages([]);
-    messageQueueRef.current = [];
-    startTimeRef.current = Date.now();
+    bufferRef.current = [];
     setIsRunning(true);
   };
 
@@ -73,40 +65,34 @@ const ReactWindow = () => {
       socketRef.current.close();
     }
     setIsRunning(false);
-    processMessageQueue();
+    flushBuffer();
   };
 
+  const Row = ({ index, style }) => (
+    <div style={style} className={`p-2 ${index % 2 ? 'bg-gray-100' : 'bg-white'}`}>
+      {messages[index]}
+    </div>
+  );
+
   return (
-    <div className='flex flex-col h-screen p-4'>
-      <h1 className='text-2xl font-bold mb-4'>WebSocket Client</h1>
-      <div className='flex justify-between mb-4'>
-        <div className='text-sm text-gray-600'>
-          Total received: <span>{messageCount}</span>
-        </div>
-        <div className='text-sm text-gray-600'>
-          Displayed: <span>{displayedCount}</span>
-        </div>
-        <div className='text-sm text-gray-600'>
-          Avg per second: <span>{avgRate}</span>
-        </div>
+    <div className='flex flex-col h-screen'>
+      <div className='flex-grow border border-gray-300 overflow-hidden'>
+        <AutoSizer>
+          {({ height, width }) => (
+            <List
+              className='List'
+              height={height}
+              itemCount={messages.length}
+              itemSize={35}
+              width={width}
+              ref={listRef}
+            >
+              {Row}
+            </List>
+          )}
+        </AutoSizer>
       </div>
-      <div className='flex-grow border border-gray-300 overflow-auto p-4 mb-4' id='messageTable'>
-        <table className='min-w-full bg-white'>
-          <thead>
-            <tr>
-              <th className='py-2'>Message</th>
-            </tr>
-          </thead>
-          <tbody>
-            {messages.map((message, index) => (
-              <tr key={index} className={index % 2 === 0 ? 'bg-gray-100' : 'bg-white'}>
-                <td className='py-2'>{message}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className='flex justify-start'>
+      <div className='flex justify-start mt-4'>
         <button
           onClick={startWebSocket}
           disabled={isRunning}
@@ -124,6 +110,4 @@ const ReactWindow = () => {
       </div>
     </div>
   );
-};
-
-export default ReactWindow;
+}
