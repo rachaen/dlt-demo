@@ -9,9 +9,9 @@ const ReactWindow = () => {
   const socketRef = useRef(null);
   const startTimeRef = useRef(null);
   const messageQueueRef = useRef([]);
-  const bufferSize = 100; // 서버에서 수신한 데이터를 줄 단위로 분할
-  const updateInterval = 1000; // 업데이트 주기 설정
-  const maxDisplayMessages = 1000; // 최대 표시 메시지 수
+  const bufferSize = 100;
+  const updateInterval = 1000;
+  const maxDisplayMessages = 1000;
 
   useEffect(() => {
     return () => {
@@ -23,35 +23,16 @@ const ReactWindow = () => {
 
   const processMessageQueue = useCallback(() => {
     if (messageQueueRef.current.length > 0) {
-      const batchToProcess = messageQueueRef.current.splice(0, bufferSize);
-      setMessageCount((prevCount) => prevCount + batchToProcess.length);
-      setMessages((prevMessages) => {
-        const newMessages = [...prevMessages, ...batchToProcess];
-        if (newMessages.length > maxDisplayMessages) {
-          return newMessages.slice(-maxDisplayMessages);
-        }
-        return newMessages;
-      });
-      setDisplayedCount((prevCount) => Math.min(prevCount + batchToProcess.length, maxDisplayMessages));
+      const newMessages = [...messages, ...messageQueueRef.current];
+      const updatedMessages = newMessages.slice(-maxDisplayMessages);
+      setMessages(updatedMessages);
+      setMessageCount((prevCount) => prevCount + messageQueueRef.current.length);
+      setDisplayedCount(updatedMessages.length);
+      messageQueueRef.current = [];
     }
     const elapsedTime = (Date.now() - startTimeRef.current) / 1000;
     setAvgRate((messageCount / elapsedTime).toFixed(2));
-  }, [messageCount]);
-
-  const processAllRemainingMessages = useCallback(() => {
-    const batchToProcess = messageQueueRef.current.splice(0, messageQueueRef.current.length);
-    setMessageCount((prevCount) => prevCount + batchToProcess.length);
-    setMessages((prevMessages) => {
-      const newMessages = [...prevMessages, ...batchToProcess];
-      if (newMessages.length > maxDisplayMessages) {
-        return newMessages.slice(-maxDisplayMessages);
-      }
-      return newMessages;
-    });
-    setDisplayedCount((prevCount) => Math.min(prevCount + batchToProcess.length, maxDisplayMessages));
-    const elapsedTime = (Date.now() - startTimeRef.current) / 1000;
-    setAvgRate((messageCount / elapsedTime).toFixed(2));
-  }, [messageCount]);
+  }, [messages, messageCount]);
 
   useEffect(() => {
     let intervalId;
@@ -69,8 +50,7 @@ const ReactWindow = () => {
   }, [messages]);
 
   const startWebSocket = () => {
-    // socketRef.current = new WebSocket('ws://localhost:9090/websocket');  // v1
-    socketRef.current = new WebSocket('ws://localhost:8383/data'); // v2
+    socketRef.current = new WebSocket('ws://localhost:8383/data');
     socketRef.current.onmessage = (event) => {
       const receivedData = event.data.split('\n');
       messageQueueRef.current.push(...receivedData.map((message) => message.trim()));
@@ -93,7 +73,7 @@ const ReactWindow = () => {
       socketRef.current.close();
     }
     setIsRunning(false);
-    processAllRemainingMessages(); // 남은 모든 메시지 처리
+    processMessageQueue();
   };
 
   return (
